@@ -1,5 +1,3 @@
-use core::time;
-
 use reqwest::{
     header::{HeaderMap, HeaderValue, ACCEPT, USER_AGENT},
     Client, RequestBuilder,
@@ -10,13 +8,8 @@ use std::fs;
 use std::io;
 use tokio::{self};
 
-fn make_request() -> Result<RequestBuilder, Box<dyn Error>> {
-    let token = fs::read_to_string("./token")?;
-
-    let mut username = String::new();
-    println!("Enter a Github Username:\n");
-    io::stdin().read_line(&mut username)?;
-    let api_url = format!("https://api.github.com/users/{username}/repos",);
+fn make_request(token: &str, username: &str) -> Result<RequestBuilder, Box<dyn Error>> {
+    let api_url = format!("https://api.github.com/users/{username}/repos?per_page=40&page=1");
     let mut headers = HeaderMap::new();
     headers.insert(
         ACCEPT,
@@ -37,12 +30,19 @@ fn make_request() -> Result<RequestBuilder, Box<dyn Error>> {
 #[tokio::main]
 async fn main() -> Result<(), reqwest::Error> {
     println!("Initializing - Github Analyzer...");
+    let token = fs::read_to_string("./token").expect("Could not read token form ./token");
 
-    let req = make_request().expect("Something went wrong building the URL");
-    //clear terminal
+    let mut username = String::new();
+    println!("Enter a Github Username:\n");
+    io::stdin()
+        .read_line(&mut username)
+        .expect("Something went wrong reading username from stdin");
+
+    // clear terminal
     println!("{}[2J", 27 as char);
     print!("{esc}[2J{esc}[1;1H", esc = 27 as char);
     // end clear terminal
+    let req = make_request(&token, &username).expect("Something went wrong building the URL");
 
     let res = req.send().await?.text().await?;
     let js: Value = serde_json::from_str(&res).expect("This should just work");
