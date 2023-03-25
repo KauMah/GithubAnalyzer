@@ -2,39 +2,21 @@ use core::time;
 
 use reqwest::{
     header::{HeaderMap, HeaderValue, ACCEPT, USER_AGENT},
-    Client,
+    Client, RequestBuilder,
 };
 use serde_json::Value;
+use std::error::Error;
 use std::fs;
-use std::{io, thread};
+use std::io;
 use tokio::{self};
 
-// async fn get_data(username: &str, ) -> Result<String, Error> {}
+fn make_request() -> Result<RequestBuilder, Box<dyn Error>> {
+    let token = fs::read_to_string("./token")?;
 
-#[tokio::main]
-async fn main() -> Result<(), reqwest::Error> {
-    let token = fs::read_to_string("./token")
-        .expect("Failed to read file \"./token\". Are you sure it's there?");
-    println!("Initializing - Github Analyzer...");
-    let sleep_time = time::Duration::from_millis(1000);
     let mut username = String::new();
-    thread::sleep(sleep_time);
     println!("Enter a Github Username:\n");
-    io::stdin()
-        .read_line(&mut username)
-        .expect("Failed to read line from file: ./token");
-
-    // clear terminal
-    println!("{}[2J", 27 as char); // Figure out how this works fool
-    print!("{esc}[2J{esc}[1;1H", esc = 27 as char); // Not sure how this works look into me
-                                                    // end clear terminal
-
+    io::stdin().read_line(&mut username)?;
     let api_url = format!("https://api.github.com/users/{username}/repos",);
-    println!("{}", api_url);
-
-    // Now lets jump into some API hijinx
-
-    // Lets set the headers appropriately
     let mut headers = HeaderMap::new();
     headers.insert(
         ACCEPT,
@@ -45,17 +27,25 @@ async fn main() -> Result<(), reqwest::Error> {
         HeaderValue::from_static("2022-11-28"),
     );
     headers.insert(USER_AGENT, HeaderValue::from_static("KauMah"));
-    // the headers have been created, so now lets goo!
-
     let req = Client::new()
         .get(&api_url)
         .headers(headers)
-        .bearer_auth(token.trim_end())
-        .send()
-        .await?
-        .text()
-        .await?;
-    let js: Value = serde_json::from_str(&req).expect("This should just work");
+        .bearer_auth(token.trim_end());
+    return Ok(req);
+}
+
+#[tokio::main]
+async fn main() -> Result<(), reqwest::Error> {
+    println!("Initializing - Github Analyzer...");
+
+    let req = make_request().expect("Something went wrong building the URL");
+    //clear terminal
+    println!("{}[2J", 27 as char);
+    print!("{esc}[2J{esc}[1;1H", esc = 27 as char);
+    // end clear terminal
+
+    let res = req.send().await?.text().await?;
+    let js: Value = serde_json::from_str(&res).expect("This should just work");
     let pretty = serde_json::to_string_pretty(&js).expect("This should just work");
     // write to file for a lil test
     // println!("{:#?}", req);
