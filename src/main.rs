@@ -8,7 +8,7 @@ use std::fs;
 use std::io;
 use tokio::{self};
 
-fn make_request(token: &str, username: &str, page: i16) -> Result<RequestBuilder, Box<dyn Error>> {
+fn get_repo_page(token: &str, username: &str, page: i16) -> Result<RequestBuilder, Box<dyn Error>> {
     let api_url = format!(
         "https://api.github.com/users/{username}/repos?per_page=5&page={}",
         page
@@ -28,6 +28,35 @@ fn make_request(token: &str, username: &str, page: i16) -> Result<RequestBuilder
         .headers(headers)
         .bearer_auth(token.trim_end());
     return Ok(req);
+}
+
+async fn get_user_email(token: &str, username: &str) -> Result<String, Box<dyn Error>> {
+    let api_url = format!("https://api.github.com/users/{username}");
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        ACCEPT,
+        HeaderValue::from_static("application/vnd.github+json"),
+    );
+    headers.insert(
+        "X-GitHub-Api-Version",
+        HeaderValue::from_static("2022-11-28"),
+    );
+    headers.insert(USER_AGENT, HeaderValue::from_static("KauMah"));
+    let res = Client::new()
+        .get(&api_url)
+        .headers(headers)
+        .bearer_auth(token.trim_end())
+        .send()
+        .await?
+        .text()
+        .await?;
+    let val: Value = serde_json::from_str(&res)
+        .expect("Failed to parse JSON from response for GET users/{username}");
+    let email = val
+        .get("email")
+        .expect("Failed to parse string <email> form JSON")
+        .to_string();
+    return Ok(email);
 }
 
 async fn get_git_urls(rb: RequestBuilder) -> Result<Vec<String>, Box<dyn Error>> {
@@ -66,7 +95,7 @@ async fn main() -> Result<(), reqwest::Error> {
     let mut page: i16 = 1;
     loop {
         let req =
-            make_request(&token, &username, page).expect("Something went wrong building the URL");
+            get_repo_page(&token, &username, page).expect("Something went wrong building the URL");
         let new_urls = get_git_urls(req).await.expect("msg");
         if new_urls.len() == 0 {
             break;
@@ -78,6 +107,11 @@ async fn main() -> Result<(), reqwest::Error> {
         page = page + 1;
         println!();
     }
+
+    let email = get_user_email(&token, &username)
+        .await
+        .expect("function get_user_email failed");
+    println!("{}", &email);
 
     // let res = req.send().await?.text().await?;
     // let js: Value = serde_json::from_str(&res).expect("This should just work");
