@@ -1,6 +1,6 @@
 use reqwest::{
+    blocking::{Client, RequestBuilder},
     header::{HeaderMap, HeaderValue, ACCEPT, USER_AGENT},
-    Client, RequestBuilder,
 };
 use serde_json::Value;
 use std::error::Error;
@@ -42,7 +42,7 @@ fn get_repo_page(token: &str, username: &str, page: i16) -> Result<RequestBuilde
     return Ok(req);
 }
 
-async fn get_user_email(token: &str, username: &str) -> Result<Vec<String>, Box<dyn Error>> {
+fn get_user_identifiers(token: &str, username: &str) -> Result<Vec<String>, Box<dyn Error>> {
     let mut out: Vec<String> = Vec::new();
     let api_url = format!("https://api.github.com/users/{username}");
     let mut headers = HeaderMap::new();
@@ -60,9 +60,9 @@ async fn get_user_email(token: &str, username: &str) -> Result<Vec<String>, Box<
         .headers(headers)
         .bearer_auth(token.trim_end())
         .send()
-        .await?
+        .expect("Request to /users/<username> failed")
         .text()
-        .await?;
+        .expect("Conversion to text failed for user");
 
     let val: Value = serde_json::from_str(&res)
         .expect("Failed to parse JSON from response for GET users/{username}");
@@ -86,9 +86,13 @@ async fn get_user_email(token: &str, username: &str) -> Result<Vec<String>, Box<
     return Ok(out);
 }
 
-async fn get_git_urls(rb: RequestBuilder) -> Result<Vec<String>, Box<dyn Error>> {
+fn get_git_urls(rb: RequestBuilder) -> Result<Vec<String>, Box<dyn Error>> {
     let mut urls = Vec::new();
-    let res = rb.send().await?.text().await?;
+    let res = rb
+        .send()
+        .expect("request to /{user}/repos failed")
+        .text()
+        .expect("Conversion to String failed for respositories");
     let json: Vec<Value> = serde_json::from_str(&res).expect("Failed to convert response to JSON");
     for repo in json.iter() {
         let url = repo
@@ -123,7 +127,7 @@ async fn main() -> Result<(), reqwest::Error> {
     loop {
         let req =
             get_repo_page(&token, &username, page).expect("Something went wrong building the URL");
-        let new_urls = get_git_urls(req).await.expect("msg");
+        let new_urls = get_git_urls(req).expect("msg");
         if new_urls.len() == 0 {
             break;
         }
@@ -135,10 +139,8 @@ async fn main() -> Result<(), reqwest::Error> {
         println!();
     }
 
-    let identifiers = get_user_email(&token, &username)
-        .await
-        .expect("function get_user_email failed");
-    // println!("{}", &email);
+    let identifiers =
+        get_user_identifiers(&token, &username).expect("function get_user_email failed");
     identifiers.iter().for_each(|id| println!("{}", id));
 
     //TODO: create list of name identifiers for user. this can be their name, email, or any alternative names provided by the user at runtime
