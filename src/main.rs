@@ -6,11 +6,23 @@ use serde_json::Value;
 use std::error::Error;
 use std::fs;
 use std::io;
-use tokio::{self};
+use tokio::{self, process::Command};
+
+struct Commit {
+    hash: String,
+    timestamp_utc: u32, // This should give me plenty of headroom for the next 100 years haha
+    added_locs: u16,
+    removed_locs: u16,
+}
+
+struct Repo {
+    repo_url: String,
+    commits: Vec<Commit>,
+}
 
 fn get_repo_page(token: &str, username: &str, page: i16) -> Result<RequestBuilder, Box<dyn Error>> {
     let api_url = format!(
-        "https://api.github.com/users/{username}/repos?per_page=5&page={}",
+        "https://api.github.com/users/{username}/repos?per_page=20&page={}",
         page
     );
     let mut headers = HeaderMap::new();
@@ -30,7 +42,8 @@ fn get_repo_page(token: &str, username: &str, page: i16) -> Result<RequestBuilde
     return Ok(req);
 }
 
-async fn get_user_email(token: &str, username: &str) -> Result<String, Box<dyn Error>> {
+async fn get_user_email(token: &str, username: &str) -> Result<Vec<String>, Box<dyn Error>> {
+    let mut out: Vec<String> = Vec::new();
     let api_url = format!("https://api.github.com/users/{username}");
     let mut headers = HeaderMap::new();
     headers.insert(
@@ -50,13 +63,27 @@ async fn get_user_email(token: &str, username: &str) -> Result<String, Box<dyn E
         .await?
         .text()
         .await?;
+
     let val: Value = serde_json::from_str(&res)
         .expect("Failed to parse JSON from response for GET users/{username}");
+    // let pretty = serde_json::to_string_pretty(&val).expect("pls");
+    // println!("{}", pretty);
     let email = val
         .get("email")
-        .expect("Failed to parse string <email> form JSON")
+        .expect("Failed to parse string <email> from JSON")
         .to_string();
-    return Ok(email);
+    let name = val
+        .get("name")
+        .expect("Failed to parse string <name> from JSON")
+        .to_string();
+    if name.ne("null") {
+        out.push(name)
+    };
+    if email.ne("null") {
+        out.push(email)
+    };
+
+    return Ok(out);
 }
 
 async fn get_git_urls(rb: RequestBuilder) -> Result<Vec<String>, Box<dyn Error>> {
@@ -108,10 +135,23 @@ async fn main() -> Result<(), reqwest::Error> {
         println!();
     }
 
-    let email = get_user_email(&token, &username)
+    let identifiers = get_user_email(&token, &username)
         .await
         .expect("function get_user_email failed");
-    println!("{}", &email);
+    // println!("{}", &email);
+    identifiers.iter().for_each(|id| println!("{}", id));
+
+    //TODO: create list of name identifiers for user. this can be their name, email, or any alternative names provided by the user at runtime
+
+    // TODO: This is the git log command that I can use to parse commit data - LOC's added, LOC's removed, date (UTC epoch)
+    // git log --pretty=format:"%H%x09%ad%x09" --author="Kaushik Mahadevan" --no-merges --date=unix --numstat
+    // TODO: Next step is to chunk each of these git hub repos and run ~5 processes at a time
+    // let _blah = Command::new("ls")
+    //     .arg("-hl")
+    //     .spawn()
+    //     .expect("This should just work);
+
+    // these processes will clone the repo, read the condensed log, and create a struct for each of the commits made by the user as defined by their name/identifier
 
     // let res = req.send().await?.text().await?;
     // let js: Value = serde_json::from_str(&res).expect("This should just work");
