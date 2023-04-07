@@ -9,6 +9,18 @@ Given a valid Github username (should validate username before performing any ex
 ## TO RUN - :exclamation::exclamation::exclamation:Important:exclamation::exclamation::exclamation:
 
 You need to generate a Personal Access Token with Github and insert it as a single line entry in a file called `token` in root of the repo
+The min version of git required is 2.4. This is because the way that your name/email/other identifiers are used to filter the git log changed after that version, and you might as well use the latest version of git instead of apple git or god forbid... - ~Windows~
+
+To verify git installation on MacOS:
+
+- Run `git -v`
+- Ensure that the version is 2.4 or above
+- if not, you can install git using homebrew: `brew install git`,
+- Or, if you already have installed git using brew, use the command `brew upgrade git`
+
+Windows:
+
+- Good luck lol, all I can recommend is installing WSL. The temporary files should be saved to the Temp directory on Windows because I used the TempFile crate, but I can't promise support because I no longer own any Windows machines. I would really appreciate if someone could try this out on Windows and let me know if everything works as it should.
 
 ## The motivation:
 
@@ -37,14 +49,16 @@ I really would like to cluster the data after splitting it into distinct “time
 
 Alternatively, maybe I could use this as a diving board to scrape the same person’s linkedin and use their job placements as a measure of their success hahaha. The idea is to get some insight into what coding habits lead to success and to get this insight with some sort of supervised or reinforcement learning so that a predictive model can be made.
 
-## Potential Technologies:
+## What this uses:
 
-- Rust
-- Node
-- AWS
-- Job Scheduler
-- Kubernetes
-- NGINX (I think, not really sure what it does)
+Rust - Lets get rusty hehehe
+
+The approach is simple:
+
+- Use GitHub API to fetch a user's repositories and scrape the git url from each
+- feed fetched git urls into a concurrent job queue that implements work stealing with X num threads
+- Clone the repo, parse the filtered git log by user identifier, and delete the repo after saving results to a csv
+- **Profit!**
 
 ## Development
 

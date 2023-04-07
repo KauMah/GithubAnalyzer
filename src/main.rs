@@ -2,11 +2,15 @@ use reqwest::{
     blocking::{Client, RequestBuilder},
     header::{HeaderMap, HeaderValue, ACCEPT, USER_AGENT},
 };
+use serde::__private::from_utf8_lossy;
 use serde_json::Value;
-use std::error::Error;
-use std::fs;
-use std::io;
-use tokio::{self, process::Command};
+use std::{env, fs, sync::mpsc};
+use std::{error::Error, process::Command};
+use std::{
+    io,
+    path::{Path, PathBuf},
+};
+use tempfile::TempDir;
 
 struct Commit {
     hash: String,
@@ -77,10 +81,10 @@ fn get_user_identifiers(token: &str, username: &str) -> Result<Vec<String>, Box<
         .expect("Failed to parse string <name> from JSON")
         .to_string();
     if name.ne("null") {
-        out.push(name)
+        out.push(name.trim_matches('"').to_owned())
     };
     if email.ne("null") {
-        out.push(email)
+        out.push(email.trim_matches('"').to_owned())
     };
 
     return Ok(out);
@@ -106,8 +110,27 @@ fn get_git_urls(rb: RequestBuilder) -> Result<Vec<String>, Box<dyn Error>> {
     Ok(urls)
 }
 
-#[tokio::main]
-async fn main() -> Result<(), reqwest::Error> {
+fn create_working_dir<P: AsRef<Path>>(path: P) -> Result<PathBuf, std::io::Error> {
+    let path = path.as_ref();
+    if path.exists() {
+        if path.is_dir() {
+            Err(std::io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "Path already exists, aborting",
+            ))
+        } else {
+            Err(std::io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "Path already exists as a file",
+            ))
+        }
+    } else {
+        fs::create_dir_all(path)?;
+        Ok(path.to_owned())
+    }
+}
+
+fn main() -> Result<(), reqwest::Error> {
     println!("Initializing - Github Analyzer...");
     let token = fs::read_to_string("./token").expect("Could not read token form ./token");
 
@@ -131,41 +154,45 @@ async fn main() -> Result<(), reqwest::Error> {
         if new_urls.len() == 0 {
             break;
         }
-        for url in new_urls.iter() {
-            println!("{}", url);
-        }
         git_urls.extend(new_urls);
         page = page + 1;
         println!();
     }
 
-    let identifiers =
+    let mut identifiers =
         get_user_identifiers(&token, &username).expect("function get_user_email failed");
     identifiers.iter().for_each(|id| println!("{}", id));
-
-    //TODO: create list of name identifiers for user. this can be their name, email, or any alternative names provided by the user at runtime
+    if identifiers.len() < 1 {
+        panic!("No identifiers found for user for parsing repos, consider using option --searchName [<names>...]");
+        // TODO: add the ability to use --searchName when running. This is such a later problem
+    }
 
     // TODO: This is the git log command that I can use to parse commit data - LOC's added, LOC's removed, date (UTC epoch)
     // git log --pretty=format:"%H%x09%ad%x09" --author="Kaushik Mahadevan" --no-merges --date=unix --numstat
     // TODO: Next step is to chunk each of these git hub repos and run ~5 processes at a time
-    // let _blah = Command::new("ls")
-    //     .arg("-hl")
-    //     .spawn()
-    //     .expect("This should just work);
 
-    // these processes will clone the repo, read the condensed log, and create a struct for each of the commits made by the user as defined by their name/identifier
+    let dir_path = TempDir::new().expect("Failed to create a temporary directory");
+    let loc_dir = env::current_dir().expect("Failed to get current directory");
+    let path = dir_path.path().join("ghAnalyze");
 
-    // let res = req.send().await?.text().await?;
-    // let js: Value = serde_json::from_str(&res).expect("This should just work");
-    // let pretty = serde_json::to_string_pretty(&js).expect("This should just work");
+    let identifier_str = format!("--author={}", identifiers.join("|"));
+    let output = Command::new("git")
+        .arg("--no-pager")
+        .arg("log")
+        .arg("--pretty=format:\"%H%x09%ad%x09\"")
+        .arg("--perl-regexp")
+        .arg("--invert-grep")
+        .arg(identifier_str)
+        .arg("--no-merges")
+        .arg("--date=unix")
+        .arg("--numstat")
+        .output()
+        .expect("Failed to show git log");
 
-    // write to file for a lil test
-    // println!("{:#?}", req);
-    // let mut file = File::create("out.txt").await.expect("Please work lol");
-    // file.write_all(pretty.as_bytes())
-    //     .await
-    //     .expect("Failed to write to file");
-    // println!("{}", &pretty);
+    println!(
+        "{:?}",
+        String::from_utf8(output.stdout).expect("I should never fail")
+    );
 
     Ok(())
 }
