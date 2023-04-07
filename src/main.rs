@@ -1,3 +1,4 @@
+use core::time;
 use reqwest::{
     blocking::{Client, RequestBuilder},
     header::{HeaderMap, HeaderValue, ACCEPT, USER_AGENT},
@@ -159,17 +160,13 @@ fn main() -> Result<(), reqwest::Error> {
         println!();
     }
 
-    let mut identifiers =
+    let identifiers =
         get_user_identifiers(&token, &username).expect("function get_user_email failed");
     identifiers.iter().for_each(|id| println!("{}", id));
     if identifiers.len() < 1 {
         panic!("No identifiers found for user for parsing repos, consider using option --searchName [<names>...]");
         // TODO: add the ability to use --searchName when running. This is such a later problem
     }
-
-    // TODO: This is the git log command that I can use to parse commit data - LOC's added, LOC's removed, date (UTC epoch)
-    // git log --pretty=format:"%H%x09%ad%x09" --author="Kaushik Mahadevan" --no-merges --date=unix --numstat
-    // TODO: Next step is to chunk each of these git hub repos and run ~5 processes at a time
 
     let dir_path = TempDir::new().expect("Failed to create a temporary directory");
     let loc_dir = env::current_dir().expect("Failed to get current directory");
@@ -189,9 +186,51 @@ fn main() -> Result<(), reqwest::Error> {
         .output()
         .expect("Failed to show git log");
 
+    let output = String::from_utf8_lossy(&output.stdout);
+    // println!("{:?}", output);
+    let lines = output.lines();
+    let mut num_files = 0;
+    let mut num_lines_added = 0;
+    let mut num_lines_deleted = 0;
+    let mut timestamp: &str;
+    let mut hash: &str;
+    for line in lines {
+        let words = line.split_whitespace().collect::<Vec<_>>();
+        let words = words
+            .into_iter()
+            .map(|st| st.trim_matches('"'))
+            .collect::<Vec<_>>();
+        let first = words.get(0);
+        match first {
+            Some(term) => {
+                if term.len() == 40 {
+                    hash = term;
+                    timestamp = words.get(1).unwrap();
+                    println!("Hash: {}, ts: {}", hash, timestamp);
+                } else {
+                    num_files += 1;
+                    num_lines_added += term.parse::<i32>().expect("This should be an integer");
+                    num_lines_deleted += words
+                        .get(1)
+                        .unwrap()
+                        .parse::<i32>()
+                        .expect("This should be an integer");
+                }
+            }
+            None => {
+                println!(
+                    "Files: {}, added: {}, removed: {}",
+                    num_files, num_lines_added, num_lines_deleted
+                );
+                num_files = 0;
+                num_lines_added = 0;
+                num_lines_deleted = 0;
+            }
+        };
+    }
     println!(
-        "{:?}",
-        String::from_utf8(output.stdout).expect("I should never fail")
+        "Files: {}, added: {}, removed: {}",
+        num_files, num_lines_added, num_lines_deleted
     );
 
     Ok(())
