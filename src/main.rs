@@ -1,31 +1,27 @@
-use core::time;
+use crossbeam::deque::{Steal, Worker};
 use reqwest::{
     blocking::{Client, RequestBuilder},
     header::{HeaderMap, HeaderValue, ACCEPT, USER_AGENT},
 };
-use serde::__private::from_utf8_lossy;
 use serde_json::Value;
-use std::{env, fs, sync::mpsc};
-use std::{error::Error, process::Command};
+use std::{error::Error, fs::File, process::Command};
+use std::{
+    fs,
+    sync::{Arc, Mutex},
+    thread,
+};
 use std::{
     io,
     path::{Path, PathBuf},
 };
 use tempfile::TempDir;
 
-struct Commit {
-    hash: String,
-    timestamp_utc: u32, // This should give me plenty of headroom for the next 100 years haha
-    added_locs: u16,
-    removed_locs: u16,
+struct Job {
+    url: String,
+    name: String,
 }
 
-struct Repo {
-    repo_url: String,
-    commits: Vec<Commit>,
-}
-
-fn get_repo_page(token: &str, username: &str, page: i16) -> Result<RequestBuilder, Box<dyn Error>> {
+fn get_repo_page(token: &str, username: &str, page: u16) -> Result<RequestBuilder, Box<dyn Error>> {
     let api_url = format!(
         "https://api.github.com/users/{username}/repos?per_page=20&page={}",
         page
@@ -91,7 +87,7 @@ fn get_user_identifiers(token: &str, username: &str) -> Result<Vec<String>, Box<
     return Ok(out);
 }
 
-fn get_git_urls(rb: RequestBuilder) -> Result<Vec<String>, Box<dyn Error>> {
+fn get_git_urls(rb: RequestBuilder) -> Result<Vec<Job>, Box<dyn Error>> {
     let mut urls = Vec::new();
     let res = rb
         .send()
@@ -104,30 +100,29 @@ fn get_git_urls(rb: RequestBuilder) -> Result<Vec<String>, Box<dyn Error>> {
             .get("git_url")
             .expect("Failed to get 'git_url' from JSON object")
             .to_string();
+        let name = repo
+            .get("name")
+            .expect("Failed to get name from JSON resoponse")
+            .to_string();
         // println!("{}", &url[7..url.len() - 1]);
-        urls.push(url[7..url.len() - 1].to_string());
+        urls.push(Job {
+            url: url.trim_matches('"').replace("git:", "http:").to_owned(),
+            name: name.trim_matches('"').to_owned(),
+        });
     }
 
     Ok(urls)
 }
 
-fn create_working_dir<P: AsRef<Path>>(path: P) -> Result<PathBuf, std::io::Error> {
-    let path = path.as_ref();
-    if path.exists() {
-        if path.is_dir() {
-            Err(std::io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                "Path already exists, aborting",
-            ))
-        } else {
-            Err(std::io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                "Path already exists as a file",
-            ))
+fn run_worker(job_queue: Arc<Worker<Job>>, file: Arc<Mutex<File>>) {
+    loop {
+        match job_queue.stealer().steal() {
+            Steal::Empty => break,
+            Steal::Success(job) => {
+                println!("{} {}", job.name, job.url);
+            }
+            Steal::Retry => continue,
         }
-    } else {
-        fs::create_dir_all(path)?;
-        Ok(path.to_owned())
     }
 }
 
@@ -146,8 +141,8 @@ fn main() -> Result<(), reqwest::Error> {
     print!("{esc}[2J{esc}[1;1H", esc = 27 as char);
     // end clear terminal
 
-    let mut git_urls: Vec<String> = Vec::new();
-    let mut page: i16 = 1;
+    let mut git_urls: Vec<Job> = Vec::new();
+    let mut page: u16 = 1;
     loop {
         let req =
             get_repo_page(&token, &username, page).expect("Something went wrong building the URL");
@@ -157,9 +152,12 @@ fn main() -> Result<(), reqwest::Error> {
         }
         git_urls.extend(new_urls);
         page = page + 1;
-        println!();
     }
 
+    // git_urls
+    //     .into_iter()
+    //     .map(|job| println!("Name: {}\tUrl: {}", job.name, job.url))
+    //     .collect::<Vec<_>>();
     let identifiers =
         get_user_identifiers(&token, &username).expect("function get_user_email failed");
     identifiers.iter().for_each(|id| println!("{}", id));
@@ -168,26 +166,39 @@ fn main() -> Result<(), reqwest::Error> {
         // TODO: add the ability to use --searchName when running. This is such a later problem
     }
 
+    let output_file = Arc::new(Mutex::new(
+        std::fs::File::create(format!("{}.csv", username.trim()))
+            .expect("Failed to create output.csv"),
+    ));
+    // --------------------------------------------------------------------------------------------- Start Job
+
     let dir_path = TempDir::new().expect("Failed to create a temporary directory");
-    let loc_dir = env::current_dir().expect("Failed to get current directory");
-    let path = dir_path.path().join("ghAnalyze");
+    let path = dir_path.path().join("sanzari");
+
+    let clone = Command::new("git")
+        .args(["clone", "http://github.com/KauMah/sanzari.git"])
+        .current_dir(dir_path.path().to_str().unwrap())
+        .status()
+        .expect("Failed to clone repo");
 
     let identifier_str = format!("--author={}", identifiers.join("|"));
     let output = Command::new("git")
-        .arg("--no-pager")
-        .arg("log")
-        .arg("--pretty=format:\"%H%x09%ad%x09\"")
-        .arg("--perl-regexp")
-        .arg("--invert-grep")
-        .arg(identifier_str)
-        .arg("--no-merges")
-        .arg("--date=unix")
-        .arg("--numstat")
+        .args([
+            "--no-pager",
+            "log",
+            "--pretty=format:\"%H%x09%ad%x09\"",
+            "--perl-regexp",
+            "--invert-grep",
+            identifier_str.as_str(),
+            "--no-merges",
+            "--date=unix",
+            "--numstat",
+        ])
+        .current_dir(path.clone().to_str().unwrap())
         .output()
         .expect("Failed to show git log");
 
     let output = String::from_utf8_lossy(&output.stdout);
-    // println!("{:?}", output);
     let lines = output.lines();
     let mut num_files = 0;
     let mut num_lines_added = 0;
@@ -209,12 +220,14 @@ fn main() -> Result<(), reqwest::Error> {
                     println!("Hash: {}, ts: {}", hash, timestamp);
                 } else {
                     num_files += 1;
-                    num_lines_added += term.parse::<i32>().expect("This should be an integer");
-                    num_lines_deleted += words
-                        .get(1)
-                        .unwrap()
-                        .parse::<i32>()
-                        .expect("This should be an integer");
+                    num_lines_added += match term.parse::<u32>() {
+                        Ok(val) => val,
+                        Err(_) => 0,
+                    };
+                    num_lines_deleted += match words.get(1).unwrap().parse::<u32>() {
+                        Ok(val) => val,
+                        Err(_) => 0,
+                    }
                 }
             }
             None => {
@@ -228,10 +241,12 @@ fn main() -> Result<(), reqwest::Error> {
             }
         };
     }
+    let del = Command::new("rm").args(["-rf", path.to_str().unwrap()]);
     println!(
         "Files: {}, added: {}, removed: {}",
         num_files, num_lines_added, num_lines_deleted
     );
+    // --------------------------------------------------------------------------------------------- End Job
 
     Ok(())
 }
