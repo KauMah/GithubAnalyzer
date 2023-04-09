@@ -4,7 +4,7 @@ use reqwest::{
     header::{HeaderMap, HeaderValue, ACCEPT, USER_AGENT},
 };
 use serde_json::Value;
-use std::{error::Error, fs::File, process::Command};
+use std::{error::Error, fs::File, io::Write, process::Command};
 use std::{
     fs,
     sync::{Arc, Mutex},
@@ -159,6 +159,7 @@ fn main() -> Result<(), reqwest::Error> {
             .expect("Failed to create output.csv"),
     ));
     let dir_path = Arc::new(TempDir::new().expect("Failed to create a temporary directory"));
+    let identifier_str = format!("--author={}", identifiers.join("|"));
     // --------------------------------------------------------------------------------------------- Start Job
 
     let job_queue: Arc<Injector<Job>> = Arc::new(Injector::new());
@@ -170,6 +171,9 @@ fn main() -> Result<(), reqwest::Error> {
     for i in 0..4 {
         let job_queue = job_queue.clone();
         let stealers = stealers.clone();
+        let dir_path = dir_path.clone();
+        let identifier_str = identifier_str.clone();
+        let output_file = output_file.clone();
         let handle = thread::spawn(move || {
             let worker: Worker<Job> = Worker::new_fifo();
             {
@@ -179,7 +183,101 @@ fn main() -> Result<(), reqwest::Error> {
             loop {
                 if !worker.is_empty() {
                     let job = worker.pop().unwrap();
-                    println!("{} {} {}", i, job.name, job.url);
+                    let path = dir_path.path().join(job.name.clone());
+
+                    let clone = Command::new("git")
+                        .args(["clone", job.url.as_str()])
+                        .current_dir(dir_path.path().to_str().unwrap())
+                        .status()
+                        .expect("Failed to clone repo");
+
+                    let output = Command::new("git")
+                        .args([
+                            "--no-pager",
+                            "log",
+                            "--pretty=format:\"%H%x09%ad%x09\"",
+                            "--perl-regexp",
+                            "--invert-grep",
+                            identifier_str.as_str(),
+                            "--no-merges",
+                            "--date=unix",
+                            "--numstat",
+                        ])
+                        .current_dir(path.clone().to_str().unwrap())
+                        .output()
+                        .expect("Failed to show git log");
+
+                    let output = String::from_utf8_lossy(&output.stdout);
+                    let lines = output.lines();
+                    let mut num_files = 0;
+                    let mut num_lines_added = 0;
+                    let mut num_lines_deleted = 0;
+                    let mut timestamp: &str = "";
+                    let mut hash: &str = "";
+                    for line in lines {
+                        let words = line.split_whitespace().collect::<Vec<_>>();
+                        let words = words
+                            .into_iter()
+                            .map(|st| st.trim_matches('"'))
+                            .collect::<Vec<_>>();
+                        let first = words.get(0);
+                        match first {
+                            Some(term) => {
+                                if term.len() == 40 {
+                                    hash = term;
+                                    timestamp = words.get(1).unwrap();
+                                    // println!("Hash: {}, ts: {}", hash, timestamp);
+                                } else {
+                                    num_files += 1;
+                                    num_lines_added += match term.parse::<u32>() {
+                                        Ok(val) => val,
+                                        Err(_) => 0,
+                                    };
+                                    num_lines_deleted += match words.get(1).unwrap().parse::<u32>()
+                                    {
+                                        Ok(val) => val,
+                                        Err(_) => 0,
+                                    }
+                                }
+                            }
+                            None => {
+                                // println!(
+                                //     "Files: {}, added: {}, removed: {}",
+                                //     num_files, num_lines_added, num_lines_deleted
+                                // );
+                                output_file
+                                    .lock()
+                                    .unwrap()
+                                    .write_all(
+                                        format!(
+                                            "{},{},{},{},{}\n",
+                                            hash,
+                                            timestamp,
+                                            num_files,
+                                            num_lines_added,
+                                            num_lines_deleted
+                                        )
+                                        .as_bytes(),
+                                    )
+                                    .expect("Failed to write to file");
+                                num_files = 0;
+                                num_lines_added = 0;
+                                num_lines_deleted = 0;
+                            }
+                        };
+                    }
+                    let _del = Command::new("rm").args(["-rf", path.to_str().unwrap()]);
+                    output_file
+                        .lock()
+                        .unwrap()
+                        .write_all(
+                            format!(
+                                "{},{},{},{},{}\n",
+                                hash, timestamp, num_files, num_lines_added, num_lines_deleted
+                            )
+                            .as_bytes(),
+                        )
+                        .expect("Failed to write to file");
                 } else if !job_queue.is_empty() {
                     let _ = job_queue.steal_batch(&worker);
                     continue;
@@ -204,79 +302,6 @@ fn main() -> Result<(), reqwest::Error> {
         handle.join().unwrap();
     }
 
-    let path = dir_path.path().join("sanzari");
-
-    let clone = Command::new("git")
-        .args(["clone", "http://github.com/KauMah/sanzari.git"])
-        .current_dir(dir_path.path().to_str().unwrap())
-        .status()
-        .expect("Failed to clone repo");
-
-    let identifier_str = format!("--author={}", identifiers.join("|"));
-    let output = Command::new("git")
-        .args([
-            "--no-pager",
-            "log",
-            "--pretty=format:\"%H%x09%ad%x09\"",
-            "--perl-regexp",
-            "--invert-grep",
-            identifier_str.as_str(),
-            "--no-merges",
-            "--date=unix",
-            "--numstat",
-        ])
-        .current_dir(path.clone().to_str().unwrap())
-        .output()
-        .expect("Failed to show git log");
-
-    let output = String::from_utf8_lossy(&output.stdout);
-    let lines = output.lines();
-    let mut num_files = 0;
-    let mut num_lines_added = 0;
-    let mut num_lines_deleted = 0;
-    let mut timestamp: &str;
-    let mut hash: &str;
-    for line in lines {
-        let words = line.split_whitespace().collect::<Vec<_>>();
-        let words = words
-            .into_iter()
-            .map(|st| st.trim_matches('"'))
-            .collect::<Vec<_>>();
-        let first = words.get(0);
-        match first {
-            Some(term) => {
-                if term.len() == 40 {
-                    hash = term;
-                    timestamp = words.get(1).unwrap();
-                    // println!("Hash: {}, ts: {}", hash, timestamp);
-                } else {
-                    num_files += 1;
-                    num_lines_added += match term.parse::<u32>() {
-                        Ok(val) => val,
-                        Err(_) => 0,
-                    };
-                    num_lines_deleted += match words.get(1).unwrap().parse::<u32>() {
-                        Ok(val) => val,
-                        Err(_) => 0,
-                    }
-                }
-            }
-            None => {
-                // println!(
-                //     "Files: {}, added: {}, removed: {}",
-                //     num_files, num_lines_added, num_lines_deleted
-                // );
-                num_files = 0;
-                num_lines_added = 0;
-                num_lines_deleted = 0;
-            }
-        };
-    }
-    let del = Command::new("rm").args(["-rf", path.to_str().unwrap()]);
-    println!(
-        "Files: {}, added: {}, removed: {}",
-        num_files, num_lines_added, num_lines_deleted
-    );
     // --------------------------------------------------------------------------------------------- End Job
 
     Ok(())
