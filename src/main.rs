@@ -1,4 +1,4 @@
-use crossbeam::deque::{Steal, Worker};
+use crossbeam::deque::{Injector, Steal, Stealer, Worker};
 use reqwest::{
     blocking::{Client, RequestBuilder},
     header::{HeaderMap, HeaderValue, ACCEPT, USER_AGENT},
@@ -114,18 +114,6 @@ fn get_git_urls(rb: RequestBuilder) -> Result<Vec<Job>, Box<dyn Error>> {
     Ok(urls)
 }
 
-fn run_worker(job_queue: Arc<Worker<Job>>, file: Arc<Mutex<File>>) {
-    loop {
-        match job_queue.stealer().steal() {
-            Steal::Empty => break,
-            Steal::Success(job) => {
-                println!("{} {}", job.name, job.url);
-            }
-            Steal::Retry => continue,
-        }
-    }
-}
-
 fn main() -> Result<(), reqwest::Error> {
     println!("Initializing - Github Analyzer...");
     let token = fs::read_to_string("./token").expect("Could not read token form ./token");
@@ -141,7 +129,7 @@ fn main() -> Result<(), reqwest::Error> {
     print!("{esc}[2J{esc}[1;1H", esc = 27 as char);
     // end clear terminal
 
-    let mut git_urls: Vec<Job> = Vec::new();
+    let mut git_repo_jobs: Vec<Job> = Vec::new();
     let mut page: u16 = 1;
     loop {
         let req =
@@ -150,7 +138,7 @@ fn main() -> Result<(), reqwest::Error> {
         if new_urls.len() == 0 {
             break;
         }
-        git_urls.extend(new_urls);
+        git_repo_jobs.extend(new_urls);
         page = page + 1;
     }
 
@@ -159,7 +147,7 @@ fn main() -> Result<(), reqwest::Error> {
     //     .map(|job| println!("Name: {}\tUrl: {}", job.name, job.url))
     //     .collect::<Vec<_>>();
     let identifiers =
-        get_user_identifiers(&token, &username).expect("function get_user_email failed");
+        Arc::new(get_user_identifiers(&token, &username).expect("function get_user_email failed"));
     identifiers.iter().for_each(|id| println!("{}", id));
     if identifiers.len() < 1 {
         panic!("No identifiers found for user for parsing repos, consider using option --searchName [<names>...]");
@@ -170,9 +158,52 @@ fn main() -> Result<(), reqwest::Error> {
         std::fs::File::create(format!("{}.csv", username.trim()))
             .expect("Failed to create output.csv"),
     ));
+    let dir_path = Arc::new(TempDir::new().expect("Failed to create a temporary directory"));
     // --------------------------------------------------------------------------------------------- Start Job
 
-    let dir_path = TempDir::new().expect("Failed to create a temporary directory");
+    let job_queue: Arc<Injector<Job>> = Arc::new(Injector::new());
+    for repo in git_repo_jobs {
+        job_queue.push(repo);
+    }
+    let stealers: Arc<Mutex<Vec<Stealer<Job>>>> = Arc::new(Mutex::new(Vec::new()));
+    let mut handles = Vec::new();
+    for i in 0..4 {
+        let job_queue = job_queue.clone();
+        let stealers = stealers.clone();
+        let handle = thread::spawn(move || {
+            let worker: Worker<Job> = Worker::new_fifo();
+            {
+                stealers.lock().unwrap().push(worker.stealer());
+            }
+            let _ = job_queue.steal_batch(&worker);
+            loop {
+                if !worker.is_empty() {
+                    let job = worker.pop().unwrap();
+                    println!("{} {} {}", i, job.name, job.url);
+                } else if !job_queue.is_empty() {
+                    let _ = job_queue.steal_batch(&worker);
+                    continue;
+                } else {
+                    let mut has_stolen = false;
+                    for stealer in stealers.lock().unwrap().to_owned().into_iter() {
+                        if !stealer.is_empty() {
+                            let _ = stealer.steal_batch(&worker);
+                            has_stolen = true;
+                            break;
+                        }
+                    }
+                    if !has_stolen {
+                        break;
+                    }
+                }
+            }
+        });
+        handles.push(handle);
+    }
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
     let path = dir_path.path().join("sanzari");
 
     let clone = Command::new("git")
@@ -217,7 +248,7 @@ fn main() -> Result<(), reqwest::Error> {
                 if term.len() == 40 {
                     hash = term;
                     timestamp = words.get(1).unwrap();
-                    println!("Hash: {}, ts: {}", hash, timestamp);
+                    // println!("Hash: {}, ts: {}", hash, timestamp);
                 } else {
                     num_files += 1;
                     num_lines_added += match term.parse::<u32>() {
@@ -231,10 +262,10 @@ fn main() -> Result<(), reqwest::Error> {
                 }
             }
             None => {
-                println!(
-                    "Files: {}, added: {}, removed: {}",
-                    num_files, num_lines_added, num_lines_deleted
-                );
+                // println!(
+                //     "Files: {}, added: {}, removed: {}",
+                //     num_files, num_lines_added, num_lines_deleted
+                // );
                 num_files = 0;
                 num_lines_added = 0;
                 num_lines_deleted = 0;
