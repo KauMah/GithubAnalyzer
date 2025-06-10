@@ -4,14 +4,12 @@ use reqwest::{
     header::{HeaderMap, HeaderValue, ACCEPT, USER_AGENT},
 };
 use serde_json::Value;
+use std::io;
 use std::{error::Error, io::Write, process::Command};
 use std::{
     fs,
     sync::{Arc, Mutex},
     thread,
-};
-use std::{
-    io,
 };
 use tempfile::TempDir;
 
@@ -185,7 +183,12 @@ fn main() -> Result<(), reqwest::Error> {
                     let path = dir_path.path().join(job.name.clone());
 
                     let clone = Command::new("git")
-                        .args(["clone", "--filter=blob:none", "--no-checkout", job.url.as_str()])
+                        .args([
+                            "clone",
+                            "--filter=blob:none",
+                            "-n",
+                            job.url.as_str(),
+                        ])
                         .current_dir(dir_path.path().to_str().unwrap())
                         .status()
                         .expect("Failed to clone repo");
@@ -244,21 +247,27 @@ fn main() -> Result<(), reqwest::Error> {
                                 //     "Files: {}, added: {}, removed: {}",
                                 //     num_files, num_lines_added, num_lines_deleted
                                 // );
-                                output_file
-                                    .lock()
-                                    .unwrap()
-                                    .write_all(
-                                        format!(
-                                            "{},{},{},{},{}\n",
-                                            hash,
-                                            timestamp,
-                                            num_files,
-                                            num_lines_added,
-                                            num_lines_deleted
+                                let nothing_to_write = num_files == 0
+                                    && num_lines_added == 0
+                                    && num_lines_deleted == 0
+                                    && hash.len() == 0;
+                                if !nothing_to_write {
+                                    output_file
+                                        .lock()
+                                        .unwrap()
+                                        .write_all(
+                                            format!(
+                                                "{},{},{},{},{}\n",
+                                                hash,
+                                                timestamp,
+                                                num_files,
+                                                num_lines_added,
+                                                num_lines_deleted
+                                            )
+                                            .as_bytes(),
                                         )
-                                        .as_bytes(),
-                                    )
-                                    .expect("Failed to write to file");
+                                        .expect("Failed to write to file");
+                                }
                                 num_files = 0;
                                 num_lines_added = 0;
                                 num_lines_deleted = 0;
@@ -267,17 +276,23 @@ fn main() -> Result<(), reqwest::Error> {
                     }
                     let _del = Command::new("rm").args(["-rf", path.to_str().unwrap()]);
 
-                    output_file
-                        .lock()
-                        .unwrap()
-                        .write_all(
-                            format!(
-                                "{},{},{},{},{}\n",
-                                hash, timestamp, num_files, num_lines_added, num_lines_deleted
+                    let nothing_to_write = num_files == 0
+                        && num_lines_added == 0
+                        && num_lines_deleted == 0
+                        && hash.len() == 0;
+                    if !nothing_to_write {
+                        output_file
+                            .lock()
+                            .unwrap()
+                            .write_all(
+                                format!(
+                                    "{},{},{},{},{}\n",
+                                    hash, timestamp, num_files, num_lines_added, num_lines_deleted
+                                )
+                                .as_bytes(),
                             )
-                            .as_bytes(),
-                        )
-                        .expect("Failed to write to file");
+                            .expect("Failed to write to file");
+                    }
                 } else if !job_queue.is_empty() {
                     let _ = job_queue.steal_batch(&worker);
                     continue;
