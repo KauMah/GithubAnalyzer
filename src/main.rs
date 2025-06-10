@@ -1,10 +1,10 @@
-use crossbeam::deque::{Injector, Steal, Stealer, Worker};
+use crossbeam::deque::{Injector, Stealer, Worker};
 use reqwest::{
     blocking::{Client, RequestBuilder},
     header::{HeaderMap, HeaderValue, ACCEPT, USER_AGENT},
 };
 use serde_json::Value;
-use std::{error::Error, fs::File, io::Write, process::Command};
+use std::{error::Error, io::Write, process::Command};
 use std::{
     fs,
     sync::{Arc, Mutex},
@@ -12,7 +12,6 @@ use std::{
 };
 use std::{
     io,
-    path::{Path, PathBuf},
 };
 use tempfile::TempDir;
 
@@ -186,7 +185,7 @@ fn main() -> Result<(), reqwest::Error> {
                     let path = dir_path.path().join(job.name.clone());
 
                     let clone = Command::new("git")
-                        .args(["clone", job.url.as_str()])
+                        .args(["clone", "--filter=blob:none", "--no-checkout", job.url.as_str()])
                         .current_dir(dir_path.path().to_str().unwrap())
                         .status()
                         .expect("Failed to clone repo");
@@ -267,6 +266,7 @@ fn main() -> Result<(), reqwest::Error> {
                         };
                     }
                     let _del = Command::new("rm").args(["-rf", path.to_str().unwrap()]);
+
                     output_file
                         .lock()
                         .unwrap()
