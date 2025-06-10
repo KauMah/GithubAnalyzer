@@ -33,7 +33,7 @@ fn get_repo_page(token: &str, username: &str, page: u16) -> Result<RequestBuilde
         "X-GitHub-Api-Version",
         HeaderValue::from_static("2022-11-28"),
     );
-    headers.insert(USER_AGENT, HeaderValue::from_static("KauMah"));
+    headers.insert(USER_AGENT, HeaderValue::from_str(username).unwrap());
     let req = Client::new()
         .get(&api_url)
         .headers(headers)
