@@ -4,10 +4,11 @@ use reqwest::{
     header::{HeaderMap, HeaderValue, ACCEPT, USER_AGENT},
 };
 use serde_json::Value;
-use std::io;
-use std::{error::Error, io::Write, process::Command};
 use std::{
-    fs,
+    env,
+    error::Error,
+    io::Write,
+    process::Command,
     sync::{Arc, Mutex},
     thread,
 };
@@ -112,14 +113,12 @@ fn get_git_urls(rb: RequestBuilder) -> Result<Vec<Job>, Box<dyn Error>> {
 }
 
 fn main() -> Result<(), reqwest::Error> {
+    let args: Vec<String> = env::args().collect();
+    let username = args[1].clone();
+    let token = args[2].clone();
     println!("Initializing - Github Analyzer...");
-    let token = fs::read_to_string("./token").expect("Could not read token form ./token");
-
-    let mut username = String::new();
-    println!("Enter a Github Username:\n");
-    io::stdin()
-        .read_line(&mut username)
-        .expect("Something went wrong reading username from stdin");
+    println!("username: {}, Token: {}", username, token);
+    // let token = fs::read_to_string("./token").expect("Could not read token form ./token");
 
     // clear terminal
     println!("{}[2J", 27 as char);
@@ -138,11 +137,6 @@ fn main() -> Result<(), reqwest::Error> {
         git_repo_jobs.extend(new_urls);
         page = page + 1;
     }
-
-    // git_urls
-    //     .into_iter()
-    //     .map(|job| println!("Name: {}\tUrl: {}", job.name, job.url))
-    //     .collect::<Vec<_>>();
     let identifiers =
         Arc::new(get_user_identifiers(&token, &username).expect("function get_user_email failed"));
     identifiers.iter().for_each(|id| println!("{}", id));
@@ -165,7 +159,7 @@ fn main() -> Result<(), reqwest::Error> {
     }
     let stealers: Arc<Mutex<Vec<Stealer<Job>>>> = Arc::new(Mutex::new(Vec::new()));
     let mut handles = Vec::new();
-    for i in 0..4 {
+    for _ in 0..4 {
         let job_queue = job_queue.clone();
         let stealers = stealers.clone();
         let dir_path = dir_path.clone();
@@ -182,13 +176,8 @@ fn main() -> Result<(), reqwest::Error> {
                     let job = worker.pop().unwrap();
                     let path = dir_path.path().join(job.name.clone());
 
-                    let clone = Command::new("git")
-                        .args([
-                            "clone",
-                            "--filter=blob:none",
-                            "-n",
-                            job.url.as_str(),
-                        ])
+                    let _ = Command::new("git")
+                        .args(["clone", "--filter=blob:none", "-n", job.url.as_str()])
                         .current_dir(dir_path.path().to_str().unwrap())
                         .status()
                         .expect("Failed to clone repo");
@@ -243,10 +232,6 @@ fn main() -> Result<(), reqwest::Error> {
                                 }
                             }
                             None => {
-                                // println!(
-                                //     "Files: {}, added: {}, removed: {}",
-                                //     num_files, num_lines_added, num_lines_deleted
-                                // );
                                 let nothing_to_write = num_files == 0
                                     && num_lines_added == 0
                                     && num_lines_deleted == 0
