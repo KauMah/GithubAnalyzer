@@ -118,7 +118,6 @@ fn main() -> Result<(), reqwest::Error> {
     let token = args[2].clone();
     println!("Initializing - Github Analyzer...");
     println!("username: {}, Token: {}", username, token);
-    // let token = fs::read_to_string("./token").expect("Could not read token form ./token");
 
     // clear terminal
     println!("{}[2J", 27 as char);
