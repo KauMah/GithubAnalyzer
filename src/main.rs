@@ -7,8 +7,7 @@ use serde_json::Value;
 use std::{
     env,
     error::Error,
-    io::Write,
-    process::Command,
+    process::{Command, Stdio},
     sync::{Arc, Mutex},
     thread,
 };
@@ -141,13 +140,8 @@ fn main() -> Result<(), reqwest::Error> {
     identifiers.iter().for_each(|id| println!("{}", id));
     if identifiers.len() < 1 {
         panic!("No identifiers found for user for parsing repos, consider using option --searchName [<names>...]");
-        // TODO: add the ability to use --searchName when running. This is such a later problem
     }
 
-    let output_file = Arc::new(Mutex::new(
-        std::fs::File::create(format!("{}.csv", username.trim()))
-            .expect("Failed to create output.csv"),
-    ));
     let dir_path = Arc::new(TempDir::new().expect("Failed to create a temporary directory"));
     let identifier_str = format!("--author={}", identifiers.join("|"));
     // --------------------------------------------------------------------------------------------- Start Job
@@ -163,7 +157,6 @@ fn main() -> Result<(), reqwest::Error> {
         let stealers = stealers.clone();
         let dir_path = dir_path.clone();
         let identifier_str = identifier_str.clone();
-        let output_file = output_file.clone();
         let handle = thread::spawn(move || {
             let worker: Worker<Job> = Worker::new_fifo();
             {
@@ -178,6 +171,8 @@ fn main() -> Result<(), reqwest::Error> {
                     let _ = Command::new("git")
                         .args(["clone", "--filter=blob:none", "-n", job.url.as_str()])
                         .current_dir(dir_path.path().to_str().unwrap())
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
                         .status()
                         .expect("Failed to clone repo");
 
@@ -216,7 +211,6 @@ fn main() -> Result<(), reqwest::Error> {
                                 if term.len() == 40 {
                                     hash = term;
                                     timestamp = words.get(1).unwrap();
-                                    // println!("Hash: {}, ts: {}", hash, timestamp);
                                 } else {
                                     num_files += 1;
                                     num_lines_added += match term.parse::<u32>() {
@@ -231,27 +225,10 @@ fn main() -> Result<(), reqwest::Error> {
                                 }
                             }
                             None => {
-                                let nothing_to_write = num_files == 0
-                                    && num_lines_added == 0
-                                    && num_lines_deleted == 0
-                                    && hash.len() == 0;
-                                if !nothing_to_write {
-                                    output_file
-                                        .lock()
-                                        .unwrap()
-                                        .write_all(
-                                            format!(
-                                                "{},{},{},{},{}\n",
-                                                hash,
-                                                timestamp,
-                                                num_files,
-                                                num_lines_added,
-                                                num_lines_deleted
-                                            )
-                                            .as_bytes(),
-                                        )
-                                        .expect("Failed to write to file");
-                                }
+                                println!(
+                                    "{},{},{},{},{}",
+                                    hash, timestamp, num_files, num_lines_added, num_lines_deleted
+                                );
                                 num_files = 0;
                                 num_lines_added = 0;
                                 num_lines_deleted = 0;
@@ -265,17 +242,10 @@ fn main() -> Result<(), reqwest::Error> {
                         && num_lines_deleted == 0
                         && hash.len() == 0;
                     if !nothing_to_write {
-                        output_file
-                            .lock()
-                            .unwrap()
-                            .write_all(
-                                format!(
-                                    "{},{},{},{},{}\n",
-                                    hash, timestamp, num_files, num_lines_added, num_lines_deleted
-                                )
-                                .as_bytes(),
-                            )
-                            .expect("Failed to write to file");
+                        println!(
+                            "{},{},{},{},{}",
+                            hash, timestamp, num_files, num_lines_added, num_lines_deleted
+                        );
                     }
                 } else if !job_queue.is_empty() {
                     let _ = job_queue.steal_batch(&worker);
