@@ -11,7 +11,8 @@
     "dev": "node --watch build/index.js",
     "pretty": "prettier . --write",
     "lint": "eslint",
-    "lint:fix": "eslint --fix"
+    "lint:fix": "eslint --fix",
+    "prepare": "cd .. && husky api/.husky"
   },
   "keywords": [],
   "author": "",
@@ -31,6 +32,8 @@
     "@typescript-eslint/parser": "^8.35.1",
     "eslint": "^9.30.1",
     "eslint-config-prettier": "^10.1.5",
+    "husky": "^8.0.0",
+    "lint-staged": "^16.1.2",
     "prettier": "^3.6.2",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.35.1"
