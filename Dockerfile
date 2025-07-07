@@ -7,7 +7,8 @@ RUN apk update && \
     curl \
     openssl-dev \
     openssl-libs-static \
-    musl-dev
+    musl-dev \
+    git
 
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y && \
     PATH="$HOME/.cargo/bin:$PATH" 
