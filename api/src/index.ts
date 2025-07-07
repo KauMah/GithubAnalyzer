@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import { analyzerSchema } from './schema';
 
 const fastify = Fastify({
   logger: true,
@@ -8,11 +9,26 @@ fastify.get('/', function (_request, reply) {
   reply.send({ hello: 'world' });
 });
 
-fastify.post('/', function (_request, _reply) {});
+fastify.post('/', function (request, reply) {
+  try {
+    const { token, username } = analyzerSchema.parse(request);
+    reply.send({
+      resp: `the token is ${token} and the username is ${username}`,
+    });
+  } catch (err) {
+    console.error(err);
+    reply.send({
+      error: err,
+    });
+  }
+});
 
 const start = async () => {
   try {
-    await fastify.listen({ port: Number(process.env.PORT ?? '3000') });
+    await fastify.listen({
+      host: '0.0.0.0',
+      port: Number(process.env.PORT ?? '3000'),
+    });
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);
