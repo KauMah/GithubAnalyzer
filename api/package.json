@@ -10,6 +10,7 @@
     "watch": "tsc -w -p tsconfig.json",
     "dev": "node --watch build/index.js",
     "pretty": "prettier . --write",
+    "rs-compile": "cd ../rs-bin && cargo build --release && mv ./target/release/github_analyzer ../api/src/",
     "lint": "eslint",
     "lint:fix": "eslint --fix",
     "prepare": "cd .. && husky api/.husky"
