@@ -9,9 +9,22 @@ fastify.get('/', function (_request, reply) {
   reply.send({ hello: 'world' });
 });
 
-fastify.post('/', function (request, reply) {
+const analysisBodySchema = {
+  type: 'object',
+  required: ['username', 'token'],
+  properties: {
+    username: { type: 'string' },
+    token: { type: 'string' },
+  },
+};
+
+const schema = {
+  body: analysisBodySchema,
+};
+
+fastify.post('/', { schema }, function (request, reply) {
+  const { token, username } = analyzerSchema.parse(request.body);
   try {
-    const { token, username } = analyzerSchema.parse(request);
     reply.send({
       resp: `the token is ${token} and the username is ${username}`,
     });
