@@ -38,7 +38,7 @@ RUN pnpm install && \
 
 RUN mv /app/rs-bin/target/release/github_analyzer /app/api/src/
 # Expose the port your Fastify API uses (change if needed)
-EXPOSE 3000
+EXPOSE 10000
 
 # Start both the Rust binary and Fastify API (example using concurrently)
 
