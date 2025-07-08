@@ -115,12 +115,12 @@ fn main() -> Result<(), reqwest::Error> {
     let args: Vec<String> = env::args().collect();
     let username = args[1].clone();
     let token = args[2].clone();
-    println!("Initializing - Github Analyzer...");
-    println!("username: {}, Token: {}", username, token);
+    // println!("Initializing - Github Analyzer...");
+    // println!("username: {}, Token: {}", username, token);
 
     // clear terminal
-    println!("{}[2J", 27 as char);
-    print!("{esc}[2J{esc}[1;1H", esc = 27 as char);
+    // println!("{}[2J", 27 as char);
+    // print!("{esc}[2J{esc}[1;1H", esc = 27 as char);
     // end clear terminal
 
     let mut git_repo_jobs: Vec<Job> = Vec::new();

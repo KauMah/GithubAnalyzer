@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import { analyzerSchema } from './schema';
+import { spawn } from 'node:child_process';
 
 const fastify = Fastify({
   logger: true,
@@ -23,10 +24,26 @@ const schema = {
 };
 
 fastify.post('/', { schema }, function (request, reply) {
-  const { token, username } = analyzerSchema.parse(request.body);
   try {
-    reply.send({
-      resp: `the token is ${token} and the username is ${username}`,
+    const { token, username } = analyzerSchema.parse(request.body);
+    const gha = spawn('src/github_analyzer', [username, token]);
+    // const gha = spawn('ls');
+
+    gha.stdout.on('data', (data: string) => {
+      console.log('one data', String(data));
+    });
+
+    gha.stderr.on('error', (err) => {
+      throw new Error(`Error running GithubAnalzyer: ${err}`);
+    });
+
+    gha.on('close', (code) => {
+      reply.send({
+        resp: `the token is ${token} and the username is ${username}`,
+        code,
+      });
+
+      gha.on('spawn', () => console.log('I started'));
     });
   } catch (err) {
     console.error(err);
