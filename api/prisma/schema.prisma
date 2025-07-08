@@ -1,0 +1,29 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Commit {
+  repo         String
+  username     String
+  hash         String
+  timestamp    DateTime
+  files        Int
+  linesAdded   Int
+  linesDeleted Int
+
+  @@id([username, hash])
+  @@index([username])
+}
+
+model User {
+  id      String @id
+  clerkId String @unique
+
+  @@index([id])
+}

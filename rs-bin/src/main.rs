@@ -12,6 +12,7 @@ use std::{
     thread,
 };
 use tempfile::TempDir;
+use url::Url;
 
 struct Job {
     url: String,
@@ -137,7 +138,7 @@ fn main() -> Result<(), reqwest::Error> {
     }
     let identifiers =
         Arc::new(get_user_identifiers(&token, &username).expect("function get_user_email failed"));
-    identifiers.iter().for_each(|id| println!("{}", id));
+    // identifiers.iter().for_each(|id| println!("{}", id));
     if identifiers.len() < 1 {
         panic!("No identifiers found for user for parsing repos, consider using option --searchName [<names>...]");
     }
@@ -157,6 +158,7 @@ fn main() -> Result<(), reqwest::Error> {
         let stealers = stealers.clone();
         let dir_path = dir_path.clone();
         let identifier_str = identifier_str.clone();
+        let usr = username.clone();
         let handle = thread::spawn(move || {
             let worker: Worker<Job> = Worker::new_fifo();
             {
@@ -167,6 +169,8 @@ fn main() -> Result<(), reqwest::Error> {
                 if !worker.is_empty() {
                     let job = worker.pop().unwrap();
                     let path = dir_path.path().join(job.name.clone());
+                    let url = Url::parse(&job.url.clone()).unwrap();
+                    let key = url.path().trim_matches('/').trim_end_matches(".git");
 
                     let _ = Command::new("git")
                         .args(["clone", "--filter=blob:none", "-n", job.url.as_str()])
@@ -226,9 +230,9 @@ fn main() -> Result<(), reqwest::Error> {
                             }
                             None => {
                                 println!(
-                                    "{},{},{},{},{}",
-                                    hash, timestamp, num_files, num_lines_added, num_lines_deleted
-                                );
+                                    "{},{},{},{},{},{},{}",
+                                    key, usr, hash, timestamp, num_files, num_lines_added, num_lines_deleted
+                                );  
                                 num_files = 0;
                                 num_lines_added = 0;
                                 num_lines_deleted = 0;
@@ -243,8 +247,8 @@ fn main() -> Result<(), reqwest::Error> {
                         && hash.len() == 0;
                     if !nothing_to_write {
                         println!(
-                            "{},{},{},{},{}",
-                            hash, timestamp, num_files, num_lines_added, num_lines_deleted
+                            "{},{},{},{},{},{},{}",
+                            key, usr, hash, timestamp, num_files, num_lines_added, num_lines_deleted
                         );
                     }
                 } else if !job_queue.is_empty() {
