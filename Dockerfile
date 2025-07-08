@@ -34,6 +34,7 @@ RUN source $HOME/.cargo/env \
 WORKDIR /app/api
 
 RUN pnpm install && \
+    pnpm generate && \
     pnpm build
 
 RUN mv /app/rs-bin/target/release/github_analyzer /app/api/src/
