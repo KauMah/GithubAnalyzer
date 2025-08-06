@@ -17,11 +17,26 @@ const protectedRoutes: FastifyPluginCallback = (fastify) => {
     body: analysisBodySchema,
   };
 
-  fastify.post('/', { schema }, function (request, reply) {
+  fastify.post('/', { schema }, async function (request, reply) {
     try {
       const body = request.body;
       const { token, username } = analyzerSchema.parse(body);
-      const gha = spawn('src/github_analyzer', [username, token]);
+      const date = await prisma.commit.findFirst({
+        where: {
+          username,
+        },
+        orderBy: {
+          timestamp: 'desc',
+        },
+        select: { timestamp: true },
+      });
+
+      const parsedDate = new Date(
+        date?.timestamp ?? '2010-01-01',
+      ).toISOString();
+      console.log(parsedDate);
+
+      const gha = spawn('src/github_analyzer', [username, token, parsedDate]);
       let totalCount = 0;
 
       gha.stdout.on('data', (data: string) => {
@@ -79,6 +94,8 @@ const protectedRoutes: FastifyPluginCallback = (fastify) => {
       reply.send({
         error: err,
       });
+    } finally {
+      return reply;
     }
   });
 };

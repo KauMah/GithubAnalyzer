@@ -116,6 +116,7 @@ fn main() -> Result<(), reqwest::Error> {
     let args: Vec<String> = env::args().collect();
     let username = args[1].clone();
     let token = args[2].clone();
+    let since = args[3].clone();
     // println!("Initializing - Github Analyzer...");
     // println!("username: {}, Token: {}", username, token);
 
@@ -159,6 +160,7 @@ fn main() -> Result<(), reqwest::Error> {
         let dir_path = dir_path.clone();
         let identifier_str = identifier_str.clone();
         let usr = username.clone();
+        let dt = since.clone();
         let handle = thread::spawn(move || {
             let worker: Worker<Job> = Worker::new_fifo();
             {
@@ -191,6 +193,8 @@ fn main() -> Result<(), reqwest::Error> {
                             "--no-merges",
                             "--date=unix",
                             "--numstat",
+                            "--since",
+                            dt.as_str()
                         ])
                         .current_dir(path.clone().to_str().unwrap())
                         .output()

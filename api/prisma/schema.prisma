@@ -19,6 +19,7 @@ model Commit {
 
   @@id([username, hash])
   @@index([username])
+  @@index([username, timestamp])
 }
 
 model User {
