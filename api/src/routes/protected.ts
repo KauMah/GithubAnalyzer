@@ -34,7 +34,6 @@ const protectedRoutes: FastifyPluginCallback = (fastify) => {
       const parsedDate = new Date(
         date?.timestamp ?? '2010-01-01',
       ).toISOString();
-      console.log(parsedDate);
 
       const gha = spawn('src/github_analyzer', [username, token, parsedDate]);
       let totalCount = 0;

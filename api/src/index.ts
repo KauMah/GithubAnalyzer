@@ -1,6 +1,5 @@
 import Fastify from 'fastify';
 import apiKeyAuth from './lib/auth';
-import { prisma } from './lib/prisma';
 
 const fastify = Fastify({
   logger: true,
@@ -14,10 +13,7 @@ fastify.addContentTypeParser(
   fastify.getDefaultJsonParser('ignore', 'ignore'),
 );
 
-fastify.get('/', async function (_request, reply) {
-  const blah = await prisma.commit.findMany({ select: { timestamp: true } });
-  // const blah = await prisma.commit.deleteMany();
-  console.log(blah);
+fastify.get('/', function (_request, reply) {
   reply.send({ hello: 'world' });
 });
 
