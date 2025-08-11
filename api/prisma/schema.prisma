@@ -23,8 +23,9 @@ model Commit {
 }
 
 model User {
-  id      String @id
-  clerkId String @unique
+  id              String @id
+  clerkId         String @unique
+  maxCommitStreak Int?   @default(0)
 
   @@index([id])
 }
